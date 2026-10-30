@@ -234,14 +234,20 @@ function resetFloor(){
 async function startAR(){
   initThree();applyAR();resetFloor();
   $('arov').classList.add('show');
-  let s;
-  try{
-    s=await navigator.xr.requestSession('immersive-ar',{
-      requiredFeatures:['hit-test'],
-      optionalFeatures:['anchors','plane-detection','depth-sensing','dom-overlay'],
-      domOverlay:{root:$('arov')},
-      depthSensing:{usagePreference:['gpu-optimized'],dataFormatPreference:['luminance-alpha','float32']}});
-  }catch(e){$('arov').classList.remove('show');throw e}
+  // Some phones reject the full feature set; step down until a session starts.
+  const dom={root:$('arov')};
+  const tries=[
+    {optionalFeatures:['anchors','plane-detection','depth-sensing','dom-overlay'],domOverlay:dom,depthSensing:{usagePreference:['gpu-optimized','cpu-optimized'],dataFormatPreference:['luminance-alpha','float32']}},
+    {optionalFeatures:['anchors','plane-detection','dom-overlay'],domOverlay:dom},
+    {optionalFeatures:['anchors','dom-overlay'],domOverlay:dom},
+    {optionalFeatures:['dom-overlay'],domOverlay:dom},
+    {}];
+  let s,err;
+  for(const t of tries){
+    try{s=await navigator.xr.requestSession('immersive-ar',Object.assign({requiredFeatures:['hit-test']},t));break}
+    catch(e){err=e;console.warn('AR config rejected, trying simpler one',e)}
+  }
+  if(!s){$('arov').classList.remove('show');throw err}
   session=s;renderer.xr.setReferenceSpaceType('local');await renderer.xr.setSession(s);
   const en=s.enabledFeatures||[];
   anchorsOn=en.includes('anchors');
