@@ -90,17 +90,12 @@ footer a{color:var(--gold2);font-weight:600;text-decoration:none}
   📍 Ongole &nbsp;|&nbsp; 📞 <a href="tel:9701199729">9701199729</a>
 </footer>
 
-<!-- Fallback: camera view + photo preview -->
+<!-- AR not supported message -->
 <div class="ov" id="fb">
   <div class="top" style="padding:calc(env(safe-area-inset-top,0px) + 12px) 12px 0">
     <div class="msg warn" id="fbMsg"></div>
     <button class="btn b3" id="fbClose">✕ Close</button>
   </div>
-  <div class="stage" id="stage">
-    <video id="vid" playsinline muted autoplay hidden></video>
-    <canvas id="cv" hidden></canvas>
-  </div>
-  <div class="bar" id="fbBar"></div>
 </div>
 
 <!-- WebXR AR overlay -->
@@ -109,7 +104,7 @@ footer a{color:var(--gold2);font-weight:600;text-decoration:none}
     <div class="msg" id="arHint">Move your phone slowly to scan the floor, then tap to place the tiles.</div>
     <button class="btn b3" id="arExit">✕ Exit</button>
   </div>
-  <div class="bar" style="background:transparent"><div class="sw" id="arSw"></div></div>
+  <div class="bar" style="background:transparent"><div class="sw" id="arSw"></div><button class="btn b3" id="arReset">↺ Reset</button><button class="btn b3" id="arOcc" hidden>Occlusion: On</button></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -171,15 +166,14 @@ function select(id){
   document.querySelectorAll('.card').forEach(c=>c.classList.toggle('sel',c.dataset.id===id));
   $('chkName').textContent=T(id).name;$('check').classList.add('show');
   $('check').scrollIntoView({behavior:'smooth',block:'center'});
-  renderSwitchers();applyAR();drawPhoto();
+  renderSwitchers();applyAR();
 }
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-id]');if(b)select(b.dataset.id)});
 
 function switcher(el){
   el.innerHTML=TILES.map(t=>`<button data-id="${t.id}" class="${t.id===sel?'on':''}"><img src="${t.thumb}" alt="">${t.name.replace(' Tile','')}</button>`).join('');
 }
-function renderSwitchers(){switcher($('arSw'));
-  const b=$('fbBar');if(b.querySelector('.sw'))switcher(b.querySelector('.sw'))}
+function renderSwitchers(){switcher($('arSw'))}
 document.addEventListener('click',e=>{const b=e.target.closest('.sw button');if(b)select(b.dataset.id)});
 ['arov'].forEach(i=>$(i).addEventListener('beforexrselect',e=>e.preventDefault()));
 
@@ -187,100 +181,153 @@ document.addEventListener('click',e=>{const b=e.target.closest('.sw button');if(
 $('chkBtn').onclick=async()=>{
   let ok=false;
   try{ok=!!(navigator.xr&&window.THREE&&await navigator.xr.isSessionSupported('immersive-ar'))}catch(e){}
-  if(ok){try{await startAR();return}catch(err){console.warn(err);
-    openFallback('Real floor AR could not start ('+(err.message||err.name)+'). If you opened this inside a preview frame, open the page in its own browser tab and try again.')
-    return}}
-  openFallback('Real floor AR (WebXR) is not supported on this browser/device. It needs Chrome on an ARCore-capable Android phone over HTTPS. Below is a plain camera view — this is NOT AR. Capture a photo of your floor to get an approximate tile preview.');
+  if(!ok)return showUnsupported('Real floor AR (WebXR) is not supported on this browser/device. It needs Chrome on an ARCore-capable Android phone, opened over HTTPS. A plain camera feed is not shown because it would not be real AR.');
+  try{await startAR()}catch(err){console.warn(err);showUnsupported('Floor AR could not start ('+(err.message||err.name)+'). If this page is inside a preview frame, open it in its own Chrome tab and try again.')}
 };
+function showUnsupported(t){$('fbMsg').textContent=t;$('fb').classList.add('show')}
+$('fbClose').onclick=()=>$('fb').classList.remove('show');
 
-/* ---------- WebXR AR (Three.js) ---------- */
-let renderer,scene,camera,reticle,floorG,floorMat,hitSource=null,session=null,textures={};
+/* ---------- WebXR floor AR: hit-test + anchors + plane detection + depth occlusion ---------- */
+const TILE=0.6; // metres: real 600 x 600 mm tile
+const VS=`varying vec3 vW;varying float vZ;varying vec4 vClip;
+void main(){vec4 w=modelMatrix*vec4(position,1.0);vW=w.xyz;vec4 mv=viewMatrix*w;vZ=-mv.z;gl_Position=projectionMatrix*mv;vClip=gl_Position;}`;
+const FS=`uniform sampler2D uMap;uniform sampler2D uDepth;uniform mat4 uInvGrid;uniform mat4 uDepthUv;
+uniform float uTile;uniform float uUseDepth;uniform float uFloat;uniform float uRaw;
+varying vec3 vW;varying float vZ;varying vec4 vClip;
+void main(){
+  if(uUseDepth>0.5){
+    vec2 nv=vClip.xy/vClip.w*0.5+0.5;nv.y=1.0-nv.y;
+    vec2 duv=(uDepthUv*vec4(nv,0.0,1.0)).xy;
+    vec4 d4=texture2D(uDepth,duv);
+    float d=uFloat>0.5?d4.r*uRaw:dot(d4.ra,vec2(255.0,65280.0))*uRaw;
+    if(d>0.05&&d<vZ-(0.06+0.03*vZ))discard;
+  }
+  vec3 g=(uInvGrid*vec4(vW,1.0)).xyz;
+  gl_FragColor=vec4(texture2D(uMap,g.xz/uTile).rgb,1.0);
+}`;
+let renderer,scene,camera,reticle,session=null,hitSource=null,glBinding=null;
+let U,floorMat,textures={},depthTex,depthOn=false,anchorsOn=false,planesOn=false,occ=true,floorY=Infinity;
+let grid={anchor:null,matrix:new THREE.Matrix4(),set:false},patches=[],planeMeshes=new Map(),placeReq=false,pending=false,hint='';
+const setHint=t=>{if(t!==hint){hint=t;$('arHint').textContent=t}};
+
 function initThree(){
   if(renderer)return;
-  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-  renderer.outputEncoding=THREE.sRGBEncoding;renderer.xr.enabled=true;
+  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.xr.enabled=true;
   scene=new THREE.Scene();camera=new THREE.PerspectiveCamera();
-  scene.add(new THREE.HemisphereLight(0xffffff,0x887766,1.1));
-  const dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(1,3,1);scene.add(dl);
   TILES.forEach(t=>{const tx=new THREE.CanvasTexture(t.canvas);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;
-    tx.repeat.set(5,5);tx.encoding=THREE.sRGBEncoding;tx.anisotropy=8;textures[t.id]=tx});
-  reticle=new THREE.Mesh(new THREE.RingGeometry(.12,.16,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0xd7b47a}));
+    tx.anisotropy=renderer.capabilities.getMaxAnisotropy();textures[t.id]=tx});
+  depthTex=new THREE.Texture();
+  U={uMap:{value:null},uDepth:{value:depthTex},uInvGrid:{value:new THREE.Matrix4()},uDepthUv:{value:new THREE.Matrix4()},
+     uTile:{value:TILE},uUseDepth:{value:0},uFloat:{value:0},uRaw:{value:1}};
+  floorMat=new THREE.ShaderMaterial({uniforms:U,vertexShader:VS,fragmentShader:FS,side:THREE.DoubleSide,transparent:false,depthTest:true,depthWrite:true});
+  reticle=new THREE.Mesh(new THREE.RingGeometry(.1,.14,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0xd7b47a,side:THREE.DoubleSide}));
   reticle.matrixAutoUpdate=false;reticle.visible=false;scene.add(reticle);
-  floorMat=new THREE.MeshStandardMaterial({map:textures[sel],roughness:.35,metalness:0,side:THREE.DoubleSide});
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(3,3).rotateX(-Math.PI/2),floorMat);
-  m.position.y=.003;floorG=new THREE.Group();floorG.add(m);floorG.matrixAutoUpdate=false;floorG.visible=false;scene.add(floorG);
 }
-function applyAR(){if(floorMat&&sel){floorMat.map=textures[sel];floorMat.needsUpdate=true}}
+function applyAR(){if(U&&sel)U.uMap.value=textures[sel]} // instant texture swap; anchors/planes untouched
+function resetFloor(){
+  patches.forEach(p=>{const a=p.userData.anchor;if(a&&a.delete)try{a.delete()}catch(e){}scene.remove(p);p.geometry.dispose()});patches=[];
+  planeMeshes.forEach(e=>{scene.remove(e.mesh);e.mesh.geometry.dispose()});planeMeshes.clear();
+  if(grid.anchor&&grid.anchor.delete)try{grid.anchor.delete()}catch(e){}
+  grid={anchor:null,matrix:new THREE.Matrix4(),set:false};floorY=Infinity;placeReq=false;pending=false;hint='';
+  if(reticle)reticle.visible=false;
+}
 async function startAR(){
-  initThree();applyAR();
-  $('arov').classList.add('show');floorG.visible=false;
-  $('arHint').textContent='Move your phone slowly to scan the floor, then tap to place the tiles.';
+  initThree();applyAR();resetFloor();
+  $('arov').classList.add('show');
   let s;
   try{
-    s=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test'],optionalFeatures:['dom-overlay'],domOverlay:{root:$('arov')}});
+    s=await navigator.xr.requestSession('immersive-ar',{
+      requiredFeatures:['hit-test'],
+      optionalFeatures:['anchors','plane-detection','depth-sensing','dom-overlay'],
+      domOverlay:{root:$('arov')},
+      depthSensing:{usagePreference:['gpu-optimized'],dataFormatPreference:['luminance-alpha','float32']}});
   }catch(e){$('arov').classList.remove('show');throw e}
-  session=s;
-  renderer.xr.setReferenceSpaceType('local');
-  await renderer.xr.setSession(s);
-  const vs=await s.requestReferenceSpace('viewer');hitSource=await s.requestHitTestSource({space:vs});
-  s.addEventListener('select',()=>{if(reticle.visible){floorG.matrix.copy(reticle.matrix);floorG.matrixWorldNeedsUpdate=true;floorG.visible=true;
-    $('arHint').textContent='Tiles placed. Switch designs below, or tap another spot to move them.'}});
-  s.addEventListener('end',()=>{hitSource=null;session=null;renderer.setAnimationLoop(null);$('arov').classList.remove('show')});
-  renderer.setAnimationLoop((t,frame)=>{
-    if(frame&&hitSource){const r=frame.getHitTestResults(hitSource);
-      if(r.length){const pose=r[0].getPose(renderer.xr.getReferenceSpace());
-        reticle.visible=!floorG.visible||true;reticle.matrix.fromArray(pose.transform.matrix);reticle.matrixWorldNeedsUpdate=true}
-      else reticle.visible=false}
-    renderer.render(scene,camera);
-  });
+  session=s;renderer.xr.setReferenceSpaceType('local');await renderer.xr.setSession(s);
+  const en=s.enabledFeatures||[];
+  anchorsOn=en.includes('anchors');
+  depthOn=en.includes('depth-sensing')&&s.depthUsage==='gpu-optimized'&&typeof XRWebGLBinding!=='undefined';
+  if(depthOn){try{glBinding=new XRWebGLBinding(s,renderer.getContext());U.uFloat.value=s.depthDataFormat==='float32'?1:0}catch(e){depthOn=false}}
+  U.uUseDepth.value=0;$('arOcc').hidden=!depthOn;
+  const vs=await s.requestReferenceSpace('viewer');
+  hitSource=await s.requestHitTestSource({space:vs,entityTypes:['plane']});
+  s.addEventListener('select',()=>{placeReq=true});
+  s.addEventListener('end',()=>{hitSource=null;session=null;glBinding=null;renderer.setAnimationLoop(null);$('arov').classList.remove('show');resetFloor()});
+  renderer.setAnimationLoop(onFrame);
 }
 $('arExit').onclick=()=>{if(session)session.end()};
+$('arReset').onclick=()=>resetFloor();
+$('arOcc').onclick=()=>{occ=!occ;$('arOcc').textContent='Occlusion: '+(occ?'On':'Off')};
 
-/* ---------- Fallback: live camera (not AR) + photo preview ---------- */
-let stream=null,photo=null,pts=[];
-const cv=$('cv'),vid=$('vid'),cx=cv.getContext('2d');
-function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
-function bar(html){$('fbBar').innerHTML=html;renderSwitchers()}
-async function openFallback(text){
-  $('fb').classList.add('show');$('fbMsg').textContent=text;photo=null;pts=[];cv.hidden=true;vid.hidden=true;
-  const sw='<div class="sw"></div>';
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-    vid.srcObject=stream;vid.hidden=false;await vid.play();
-    $('fbMsg').textContent=text;
-    bar(`<button class="btn b2" id="snap">📸 Capture floor photo</button><label class="btn b3" style="display:inline-block">Upload photo<input type="file" accept="image/*" id="up" hidden></label>`);
-    $('snap').onclick=snap;
-  }catch(err){
-    $('fbMsg').textContent=text+' Camera access was unavailable ('+(err.name||'error')+'). You can upload or take a photo instead.';
-    bar(`<label class="btn b2" style="display:inline-block">📷 Take / upload room photo<input type="file" accept="image/*" capture="environment" id="up" hidden></label>`);
+function planeGeo(poly){
+  const c=poly.map(p=>new THREE.Vector2(p.x,p.z)),tri=THREE.ShapeUtils.triangulateShape(c.slice(),[]),pos=[];
+  poly.forEach(p=>pos.push(p.x,0,p.z));
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setIndex(tri.flat());return g;
+}
+function place(hit,m){
+  const mat=new THREE.Matrix4().fromArray(m);pending=true;
+  const done=a=>{pending=false;addPatch(a,mat)};
+  if(anchorsOn&&hit.createAnchor)hit.createAnchor().then(done,()=>done(null));else done(null);
+}
+function addPatch(anchor,mat){
+  if(!grid.set){grid.anchor=anchor;grid.matrix.copy(mat);grid.set=true}
+  if(planesOn||patches.length>=16)return;
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(2,2).rotateX(-Math.PI/2),floorMat);
+  m.matrixAutoUpdate=false;m.frustumCulled=false;m.userData={anchor,mat:mat.clone()};scene.add(m);patches.push(m);
+}
+function onFrame(t,frame){
+  if(frame){try{update(frame)}catch(e){console.warn(e)}}
+  renderer.render(scene,camera);
+}
+function update(frame){
+  const rs=renderer.xr.getReferenceSpace(),vp=frame.getViewerPose(rs),planes=frame.detectedPlanes;
+  planesOn=!!planes;
+  // floor height = lowest horizontal surface seen (planes and hits)
+  if(planes)planes.forEach(pl=>{if(pl.orientation==='horizontal'&&(!pl.semanticLabel||pl.semanticLabel==='floor')){
+    const p=frame.getPose(pl.planeSpace,rs);if(p)floorY=Math.min(floorY,p.transform.position.y)}});
+  // accurate hit test against detected planes, horizontal surfaces only
+  let hit=null,hp=null;
+  if(hitSource)for(const h of frame.getHitTestResults(hitSource)){const p=h.getPose(rs);if(p&&p.transform.matrix[5]>0.94){hit=h;hp=p;break}}
+  if(hit)floorY=Math.min(floorY,hp.transform.position.y);
+  const hitFloor=!!hit&&hp.transform.position.y<=floorY+.15;
+  reticle.visible=hitFloor&&(!grid.set||!planesOn);
+  if(hitFloor){reticle.matrix.fromArray(hp.transform.matrix);reticle.matrixWorldNeedsUpdate=true}
+  // tracking state
+  let lost=!vp||vp.emulatedPosition;
+  if(grid.set&&grid.anchor){const p=frame.getPose(grid.anchor.anchorSpace,rs);if(p)grid.matrix.fromArray(p.transform.matrix);else lost=true}
+  U.uInvGrid.value.copy(grid.matrix).invert();
+  // tap to place
+  if(placeReq){placeReq=false;
+    if(!hitFloor)setHint(hit?'That surface looks raised (table or sofa). Tap on the floor itself.':'No floor found yet. Keep moving slowly.');
+    else if(!pending)place(hit,hp.transform.matrix)}
+  // anchored patches (used when the browser gives no plane outlines)
+  patches.forEach(p=>{const a=p.userData.anchor;let ok=true;
+    if(a){const q=frame.getPose(a.anchorSpace,rs);if(q)p.matrix.fromArray(q.transform.matrix);else ok=false}else p.matrix.copy(p.userData.mat);
+    p.visible=ok&&!lost;p.matrixWorldNeedsUpdate=true});
+  // real detected floor planes
+  if(planes&&grid.set){const seen=new Set();
+    planes.forEach(pl=>{
+      if(pl.orientation!=='horizontal'||(pl.semanticLabel&&pl.semanticLabel!=='floor'))return;
+      const p=frame.getPose(pl.planeSpace,rs);if(!p)return;
+      if(!pl.semanticLabel&&p.transform.position.y>floorY+.15)return;
+      let e=planeMeshes.get(pl);
+      if(!e){e={mesh:new THREE.Mesh(new THREE.BufferGeometry(),floorMat),t:-1};e.mesh.matrixAutoUpdate=false;e.mesh.frustumCulled=false;scene.add(e.mesh);planeMeshes.set(pl,e)}
+      if(e.t!==pl.lastChangedTime){e.t=pl.lastChangedTime;e.mesh.geometry.dispose();e.mesh.geometry=planeGeo(pl.polygon)}
+      e.mesh.matrix.fromArray(p.transform.matrix);e.mesh.matrixWorldNeedsUpdate=true;e.mesh.visible=!lost;seen.add(pl)});
+    planeMeshes.forEach((e,pl)=>{if(!seen.has(pl)){scene.remove(e.mesh);e.mesh.geometry.dispose();planeMeshes.delete(pl)}});
   }
-  $('up').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();
-    im.onload=()=>{stopCam();setPhoto(im,im.naturalWidth,im.naturalHeight)};im.src=URL.createObjectURL(f)};
-}
-function snap(){setPhoto(vid,vid.videoWidth,vid.videoHeight);stopCam()}
-function setPhoto(src,w,h){
-  const k=Math.min(1,1280/Math.max(w,h));cv.width=w*k;cv.height=h*k;cx.drawImage(src,0,0,cv.width,cv.height);
-  photo=document.createElement('canvas');photo.width=cv.width;photo.height=cv.height;photo.getContext('2d').drawImage(cv,0,0);
-  vid.hidden=true;cv.hidden=false;pts=[];
-  $('fbMsg').textContent='Photo preview (approximate, not AR): tap the 4 corners of your floor area.';
-  bar(`<div class="sw"></div><button class="btn b3" id="reset">↺ Reset</button>`);
-  $('reset').onclick=()=>{pts=[];drawPhoto()};drawPhoto();
-}
-cv.addEventListener('click',e=>{if(!photo||pts.length>=4)return;const r=cv.getBoundingClientRect();
-  pts.push([(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height]);drawPhoto();
-  if(pts.length===4)$('fbMsg').textContent='Previewing '+T(sel).name+'. Switch designs below. (Approximate preview — flat tiling, no perspective.)'});
-function drawPhoto(){
-  if(!photo)return;cx.globalCompositeOperation='source-over';cx.globalAlpha=1;cx.drawImage(photo,0,0);
-  if(pts.length===4&&sel){
-    cx.save();cx.beginPath();pts.forEach((p,i)=>i?cx.lineTo(...p):cx.moveTo(...p));cx.closePath();cx.clip();
-    const ts=cv.width/6,tc=T(sel).canvas,pat=document.createElement('canvas');pat.width=pat.height=ts;pat.getContext('2d').drawImage(tc,0,0,ts,ts);
-    cx.globalAlpha=.92;cx.fillStyle=cx.createPattern(pat,'repeat');cx.fillRect(0,0,cv.width,cv.height);
-    cx.globalCompositeOperation='multiply';cx.globalAlpha=.45;cx.drawImage(photo,0,0);cx.restore();
+  // real-world depth for occlusion (furniture hides the virtual floor)
+  if(depthOn&&vp&&vp.views.length){
+    const di=glBinding.getDepthInformation(vp.views[0]);
+    if(di){const pr=renderer.properties.get(depthTex);pr.__webglTexture=di.texture;pr.__webglInit=true;
+      U.uDepthUv.value.fromArray(di.normDepthBufferFromNormView.matrix);U.uRaw.value=di.rawValueToMeters;U.uUseDepth.value=occ?1:0}
+    else U.uUseDepth.value=0;
   }
-  cx.globalAlpha=1;cx.globalCompositeOperation='source-over';
-  pts.forEach((p,i)=>{cx.beginPath();cx.arc(p[0],p[1],8,0,7);cx.fillStyle='#d7b47a';cx.fill();cx.strokeStyle='#fff';cx.lineWidth=2;cx.stroke()});
+  // honest status text
+  if(lost)setHint('Tracking lost. Move your phone slowly and point at the floor to recover.');
+  else if(!grid.set)setHint(hitFloor?'Floor found. Tap to lay tiles here.':(hit?'Point at the floor (the lowest flat surface).':'Move your phone slowly to detect the floor…'));
+  else if(planesOn)setHint('Tiles cover only the floor area detected so far. Keep scanning slowly to extend it.');
+  else setHint('This browser gives no floor outline, so tiles cover a patch around where you tapped. Tap other floor spots to extend it.');
 }
-$('fbClose').onclick=()=>{stopCam();$('fb').classList.remove('show')};
 </script>
 </body>
 </html>
