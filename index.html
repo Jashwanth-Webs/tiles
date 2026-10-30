@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ranga Tiles and Sanitaryware – Tiles Visualizer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#faf7f2;--bg2:#efe6d8;--ink:#2b2620;--mute:#7a6f62;--card:#ffffff;--gold:#b08d57;--gold2:#8f6f3e;--line:#e4d9c8;--shadow:0 18px 40px rgba(90,70,40,.14);
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1d1913;--bg2:#2a241b;--ink:#f3ece0;--mute:#b3a794;--card:#292319;--line:#3d3425;--shadow:0 18px 40px rgba(0,0,0,.4)}}
+:root[data-theme="dark"]{--bg:#1d1913;--bg2:#2a241b;--ink:#f3ece0;--mute:#b3a794;--card:#292319;--line:#3d3425;--shadow:0 18px 40px rgba(0,0,0,.4)}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;min-height:100%;
+background-image:radial-gradient(1200px 500px at 50% -10%,rgba(255,255,255,.7),transparent 70%),linear-gradient(180deg,var(--bg) 0,var(--bg2) 100%)}
+.floorbg{position:fixed;left:0;right:0;bottom:0;height:42vh;z-index:-1;opacity:.55;pointer-events:none;
+background:repeating-linear-gradient(90deg,transparent 0 79px,var(--line) 79px 80px),repeating-linear-gradient(0deg,transparent 0 79px,var(--line) 79px 80px);
+transform:perspective(500px) rotateX(58deg);transform-origin:bottom;-webkit-mask-image:linear-gradient(to top,#000,transparent);mask-image:linear-gradient(to top,#000,transparent)}
+header{text-align:center;padding:34px 20px 8px}
+.brand{font-family:'Cormorant Garamond',serif;font-weight:700;font-size:clamp(26px,6vw,44px);letter-spacing:.08em;margin:0;line-height:1.1}
+.brand span{color:var(--gold2)}
+.tag{margin:8px 0 0;color:var(--mute);font-size:13px;letter-spacing:.14em;text-transform:uppercase}
+.sub{margin:6px 0 0;color:var(--mute);font-size:14px}
+.orn{width:60px;height:2px;background:var(--gold);margin:16px auto 0;border-radius:2px}
+main{max-width:980px;margin:0 auto;padding:10px 18px 120px}
+h1{font-family:'Cormorant Garamond',serif;text-align:center;font-weight:600;font-size:clamp(30px,7vw,52px);margin:26px 0 6px}
+.lead{text-align:center;color:var(--mute);margin:0 0 28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px}
+.card{background:var(--card);border:1.5px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);transition:transform .3s,border-color .3s;animation:rise .7s both}
+.card:nth-child(2){animation-delay:.12s}
+.card:hover{transform:translateY(-4px)}
+.card.sel{border-color:var(--gold);box-shadow:0 0 0 3px rgba(176,141,87,.28),var(--shadow)}
+.card img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover}
+.cb{padding:16px 18px 20px;text-align:center}
+.cb h2{font-family:'Cormorant Garamond',serif;font-size:24px;margin:0 0 2px}
+.cb p{margin:0 0 14px;color:var(--mute);font-size:13px}
+.btn{appearance:none;border:0;cursor:pointer;font:600 14px Inter,sans-serif;letter-spacing:.04em;padding:13px 22px;border-radius:999px;transition:transform .2s,background .2s}
+.btn:active{transform:scale(.97)}
+.b1{background:var(--ink);color:var(--bg);width:100%}
+.card.sel .b1{background:var(--gold2);color:#fff}
+.b2{background:linear-gradient(135deg,#c4a06a,#8f6f3e);color:#fff;box-shadow:0 10px 24px rgba(143,111,62,.35)}
+.b3{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.5);backdrop-filter:blur(6px)}
+.check{display:none;text-align:center;margin:34px auto 0;padding:22px;max-width:520px;border:1.5px dashed var(--gold);border-radius:20px;background:rgba(255,255,255,.35);animation:rise .5s both}
+.check.show{display:block}
+.check b{font-family:'Cormorant Garamond',serif;font-size:22px}
+.check p{margin:4px 0 14px;color:var(--mute);font-size:13px}
+footer{text-align:center;padding:22px 16px 40px;color:var(--mute);font-size:14px}
+footer a{color:var(--gold2);font-weight:600;text-decoration:none}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+/* overlays */
+.ov{position:fixed;inset:0;z-index:50;display:none;background:#000;color:#fff;flex-direction:column}
+.ov.show{display:flex}
+#arov{background:transparent;pointer-events:none;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 12px) 12px calc(env(safe-area-inset-bottom,0px) + 16px)}
+#arov>*{pointer-events:auto}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.msg{background:rgba(0,0,0,.6);padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.4;max-width:560px;backdrop-filter:blur(6px)}
+.warn{background:#7a4a12;border:1px solid #e0a95a}
+.stage{flex:1;position:relative;min-height:0;display:flex;align-items:center;justify-content:center;background:#111}
+.stage video,.stage canvas{max-width:100%;max-height:100%;object-fit:contain;touch-action:manipulation}
+.bar{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;padding:12px;background:rgba(0,0,0,.55)}
+.sw{display:flex;gap:8px}
+.sw button{display:flex;align-items:center;gap:8px;border:2px solid rgba(255,255,255,.35);background:rgba(0,0,0,.45);color:#fff;border-radius:14px;padding:5px 12px 5px 5px;font:500 12px Inter,sans-serif;cursor:pointer}
+.sw button.on{border-color:#d7b47a;background:rgba(176,141,87,.45)}
+.sw img{width:36px;height:36px;border-radius:9px;object-fit:cover}
+</style>
+</head>
+<body>
+<div class="floorbg"></div>
+<header>
+  <p class="brand">RANGA <span>TILES</span> AND SANITARYWARE</p>
+  <p class="tag">Since 1998 &nbsp;|&nbsp; Trusted Quality</p>
+  <p class="sub">Tiles • Sanitaryware • Bath Solutions</p>
+  <div class="orn"></div>
+</header>
+
+<main>
+  <h1>Find the Perfect Tiles for Your Home</h1>
+  <p class="lead">Choose a design and preview it on your own floor.</p>
+  <div class="grid" id="grid"></div>
+
+  <div class="check" id="check">
+    <b id="chkName">Selected tile</b>
+    <p>Point your phone camera at the floor to preview this tile in your room.</p>
+    <button class="btn b2" id="chkBtn">📷 Check in Your Room</button>
+  </div>
+</main>
+
+<footer>
+  📍 Ongole &nbsp;|&nbsp; 📞 <a href="tel:9701199729">9701199729</a>
+</footer>
+
+<!-- Fallback: camera view + photo preview -->
+<div class="ov" id="fb">
+  <div class="top" style="padding:calc(env(safe-area-inset-top,0px) + 12px) 12px 0">
+    <div class="msg warn" id="fbMsg"></div>
+    <button class="btn b3" id="fbClose">✕ Close</button>
+  </div>
+  <div class="stage" id="stage">
+    <video id="vid" playsinline muted autoplay hidden></video>
+    <canvas id="cv" hidden></canvas>
+  </div>
+  <div class="bar" id="fbBar"></div>
+</div>
+
+<!-- WebXR AR overlay -->
+<div class="ov" id="arov">
+  <div class="top">
+    <div class="msg" id="arHint">Move your phone slowly to scan the floor, then tap to place the tiles.</div>
+    <button class="btn b3" id="arExit">✕ Exit</button>
+  </div>
+  <div class="bar" style="background:transparent"><div class="sw" id="arSw"></div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const TILES=[
+ {id:'marble',name:'Royal White Marble Tile',note:'600 × 600 mm · Polished finish'},
+ {id:'stone', name:'Urban Grey Stone Tile', note:'600 × 600 mm · Matte finish'}
+];
+let sel=null;
+
+/* ---------- procedural tile textures (no external images) ---------- */
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+function makeTile(type,S=512){
+  seed=type==='marble'?11:29;
+  const c=document.createElement('canvas');c.width=c.height=S;const x=c.getContext('2d');
+  if(type==='marble'){
+    const g=x.createLinearGradient(0,0,S,S);g.addColorStop(0,'#fbfaf7');g.addColorStop(.5,'#f1eee8');g.addColorStop(1,'#faf8f4');
+    x.fillStyle=g;x.fillRect(0,0,S,S);
+    for(let i=0;i<9;i++){
+      x.beginPath();let px=rnd()*S,py=-10;x.moveTo(px,py);
+      const w=.4+rnd()*2.2;
+      while(py<S+10){px+=(rnd()-.5)*90;py+=30+rnd()*50;x.lineTo(px,py)}
+      x.strokeStyle=`rgba(${110+rnd()*40|0},${112+rnd()*40|0},${120+rnd()*40|0},${.12+rnd()*.35})`;
+      x.lineWidth=w;x.lineJoin='round';x.shadowColor='rgba(120,120,130,.35)';x.shadowBlur=6;x.stroke();
+    }
+    x.shadowBlur=0;
+    for(let i=0;i<5;i++){x.beginPath();let px=rnd()*S,py=rnd()*S;x.moveTo(px,py);
+      for(let k=0;k<6;k++){px+=(rnd()-.5)*140;py+=(rnd()-.5)*140;x.lineTo(px,py)}
+      x.strokeStyle='rgba(190,170,130,.25)';x.lineWidth=.8;x.stroke()}
+    const d=x.getImageData(0,0,S,S),p=d.data;
+    for(let i=0;i<p.length;i+=4){const n=(rnd()-.5)*8;p[i]+=n;p[i+1]+=n;p[i+2]+=n}
+    x.putImageData(d,0,0);
+  }else{
+    x.fillStyle='#8b8e91';x.fillRect(0,0,S,S);
+    for(let i=0;i<14;i++){const g=x.createRadialGradient(rnd()*S,rnd()*S,5,rnd()*S,rnd()*S,120+rnd()*120);
+      const l=rnd()>.5?'255,255,255':'40,40,45';g.addColorStop(0,`rgba(${l},.10)`);g.addColorStop(1,`rgba(${l},0)`);x.fillStyle=g;x.fillRect(0,0,S,S)}
+    const d=x.getImageData(0,0,S,S),p=d.data;
+    for(let i=0;i<p.length;i+=4){const n=(rnd()-.5)*46+(rnd()>.97?(rnd()-.5)*90:0);p[i]+=n;p[i+1]+=n;p[i+2]+=n*1.02}
+    x.putImageData(d,0,0);
+  }
+  // tile edge / grout
+  x.lineWidth=6;x.strokeStyle=type==='marble'?'rgba(150,140,125,.55)':'rgba(40,42,44,.6)';x.strokeRect(0,0,S,S);
+  return c;
+}
+TILES.forEach(t=>{t.canvas=makeTile(t.id);
+  const cc=document.createElement('canvas');cc.width=800;cc.height=600;const x=cc.getContext('2d');
+  for(let i=0;i<3;i++)for(let j=0;j<3;j++)x.drawImage(t.canvas,i*267,j*200,267,200);
+  t.url=cc.toDataURL('image/jpeg',.9);t.thumb=t.canvas.toDataURL('image/jpeg',.7);
+});
+const T=id=>TILES.find(t=>t.id===id);
+
+/* ---------- main page ---------- */
+$('grid').innerHTML=TILES.map(t=>`<article class="card" data-id="${t.id}">
+ <img src="${t.url}" alt="${t.name}"><div class="cb"><h2>${t.name}</h2><p>${t.note}</p>
+ <button class="btn b1" data-id="${t.id}">Try in Your Room</button></div></article>`).join('');
+function select(id){
+  sel=id;
+  document.querySelectorAll('.card').forEach(c=>c.classList.toggle('sel',c.dataset.id===id));
+  $('chkName').textContent=T(id).name;$('check').classList.add('show');
+  $('check').scrollIntoView({behavior:'smooth',block:'center'});
+  renderSwitchers();applyAR();drawPhoto();
+}
+$('grid').addEventListener('click',e=>{const b=e.target.closest('[data-id]');if(b)select(b.dataset.id)});
+
+function switcher(el){
+  el.innerHTML=TILES.map(t=>`<button data-id="${t.id}" class="${t.id===sel?'on':''}"><img src="${t.thumb}" alt="">${t.name.replace(' Tile','')}</button>`).join('');
+}
+function renderSwitchers(){switcher($('arSw'));
+  const b=$('fbBar');if(b.querySelector('.sw'))switcher(b.querySelector('.sw'))}
+document.addEventListener('click',e=>{const b=e.target.closest('.sw button');if(b)select(b.dataset.id)});
+['arov'].forEach(i=>$(i).addEventListener('beforexrselect',e=>e.preventDefault()));
+
+/* ---------- Check in your room ---------- */
+$('chkBtn').onclick=async()=>{
+  let ok=false;
+  try{ok=!!(navigator.xr&&window.THREE&&await navigator.xr.isSessionSupported('immersive-ar'))}catch(e){}
+  if(ok){try{await startAR();return}catch(err){console.warn(err);
+    openFallback('Real floor AR could not start ('+(err.message||err.name)+'). If you opened this inside a preview frame, open the page in its own browser tab and try again.')
+    return}}
+  openFallback('Real floor AR (WebXR) is not supported on this browser/device. It needs Chrome on an ARCore-capable Android phone over HTTPS. Below is a plain camera view — this is NOT AR. Capture a photo of your floor to get an approximate tile preview.');
+};
+
+/* ---------- WebXR AR (Three.js) ---------- */
+let renderer,scene,camera,reticle,floorG,floorMat,hitSource=null,session=null,textures={};
+function initThree(){
+  if(renderer)return;
+  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.outputEncoding=THREE.sRGBEncoding;renderer.xr.enabled=true;
+  scene=new THREE.Scene();camera=new THREE.PerspectiveCamera();
+  scene.add(new THREE.HemisphereLight(0xffffff,0x887766,1.1));
+  const dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(1,3,1);scene.add(dl);
+  TILES.forEach(t=>{const tx=new THREE.CanvasTexture(t.canvas);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;
+    tx.repeat.set(5,5);tx.encoding=THREE.sRGBEncoding;tx.anisotropy=8;textures[t.id]=tx});
+  reticle=new THREE.Mesh(new THREE.RingGeometry(.12,.16,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0xd7b47a}));
+  reticle.matrixAutoUpdate=false;reticle.visible=false;scene.add(reticle);
+  floorMat=new THREE.MeshStandardMaterial({map:textures[sel],roughness:.35,metalness:0,side:THREE.DoubleSide});
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(3,3).rotateX(-Math.PI/2),floorMat);
+  m.position.y=.003;floorG=new THREE.Group();floorG.add(m);floorG.matrixAutoUpdate=false;floorG.visible=false;scene.add(floorG);
+}
+function applyAR(){if(floorMat&&sel){floorMat.map=textures[sel];floorMat.needsUpdate=true}}
+async function startAR(){
+  initThree();applyAR();
+  $('arov').classList.add('show');floorG.visible=false;
+  $('arHint').textContent='Move your phone slowly to scan the floor, then tap to place the tiles.';
+  let s;
+  try{
+    s=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test'],optionalFeatures:['dom-overlay'],domOverlay:{root:$('arov')}});
+  }catch(e){$('arov').classList.remove('show');throw e}
+  session=s;
+  renderer.xr.setReferenceSpaceType('local');
+  await renderer.xr.setSession(s);
+  const vs=await s.requestReferenceSpace('viewer');hitSource=await s.requestHitTestSource({space:vs});
+  s.addEventListener('select',()=>{if(reticle.visible){floorG.matrix.copy(reticle.matrix);floorG.matrixWorldNeedsUpdate=true;floorG.visible=true;
+    $('arHint').textContent='Tiles placed. Switch designs below, or tap another spot to move them.'}});
+  s.addEventListener('end',()=>{hitSource=null;session=null;renderer.setAnimationLoop(null);$('arov').classList.remove('show')});
+  renderer.setAnimationLoop((t,frame)=>{
+    if(frame&&hitSource){const r=frame.getHitTestResults(hitSource);
+      if(r.length){const pose=r[0].getPose(renderer.xr.getReferenceSpace());
+        reticle.visible=!floorG.visible||true;reticle.matrix.fromArray(pose.transform.matrix);reticle.matrixWorldNeedsUpdate=true}
+      else reticle.visible=false}
+    renderer.render(scene,camera);
+  });
+}
+$('arExit').onclick=()=>{if(session)session.end()};
+
+/* ---------- Fallback: live camera (not AR) + photo preview ---------- */
+let stream=null,photo=null,pts=[];
+const cv=$('cv'),vid=$('vid'),cx=cv.getContext('2d');
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
+function bar(html){$('fbBar').innerHTML=html;renderSwitchers()}
+async function openFallback(text){
+  $('fb').classList.add('show');$('fbMsg').textContent=text;photo=null;pts=[];cv.hidden=true;vid.hidden=true;
+  const sw='<div class="sw"></div>';
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    vid.srcObject=stream;vid.hidden=false;await vid.play();
+    $('fbMsg').textContent=text;
+    bar(`<button class="btn b2" id="snap">📸 Capture floor photo</button><label class="btn b3" style="display:inline-block">Upload photo<input type="file" accept="image/*" id="up" hidden></label>`);
+    $('snap').onclick=snap;
+  }catch(err){
+    $('fbMsg').textContent=text+' Camera access was unavailable ('+(err.name||'error')+'). You can upload or take a photo instead.';
+    bar(`<label class="btn b2" style="display:inline-block">📷 Take / upload room photo<input type="file" accept="image/*" capture="environment" id="up" hidden></label>`);
+  }
+  $('up').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();
+    im.onload=()=>{stopCam();setPhoto(im,im.naturalWidth,im.naturalHeight)};im.src=URL.createObjectURL(f)};
+}
+function snap(){setPhoto(vid,vid.videoWidth,vid.videoHeight);stopCam()}
+function setPhoto(src,w,h){
+  const k=Math.min(1,1280/Math.max(w,h));cv.width=w*k;cv.height=h*k;cx.drawImage(src,0,0,cv.width,cv.height);
+  photo=document.createElement('canvas');photo.width=cv.width;photo.height=cv.height;photo.getContext('2d').drawImage(cv,0,0);
+  vid.hidden=true;cv.hidden=false;pts=[];
+  $('fbMsg').textContent='Photo preview (approximate, not AR): tap the 4 corners of your floor area.';
+  bar(`<div class="sw"></div><button class="btn b3" id="reset">↺ Reset</button>`);
+  $('reset').onclick=()=>{pts=[];drawPhoto()};drawPhoto();
+}
+cv.addEventListener('click',e=>{if(!photo||pts.length>=4)return;const r=cv.getBoundingClientRect();
+  pts.push([(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height]);drawPhoto();
+  if(pts.length===4)$('fbMsg').textContent='Previewing '+T(sel).name+'. Switch designs below. (Approximate preview — flat tiling, no perspective.)'});
+function drawPhoto(){
+  if(!photo)return;cx.globalCompositeOperation='source-over';cx.globalAlpha=1;cx.drawImage(photo,0,0);
+  if(pts.length===4&&sel){
+    cx.save();cx.beginPath();pts.forEach((p,i)=>i?cx.lineTo(...p):cx.moveTo(...p));cx.closePath();cx.clip();
+    const ts=cv.width/6,tc=T(sel).canvas,pat=document.createElement('canvas');pat.width=pat.height=ts;pat.getContext('2d').drawImage(tc,0,0,ts,ts);
+    cx.globalAlpha=.92;cx.fillStyle=cx.createPattern(pat,'repeat');cx.fillRect(0,0,cv.width,cv.height);
+    cx.globalCompositeOperation='multiply';cx.globalAlpha=.45;cx.drawImage(photo,0,0);cx.restore();
+  }
+  cx.globalAlpha=1;cx.globalCompositeOperation='source-over';
+  pts.forEach((p,i)=>{cx.beginPath();cx.arc(p[0],p[1],8,0,7);cx.fillStyle='#d7b47a';cx.fill();cx.strokeStyle='#fff';cx.lineWidth=2;cx.stroke()});
+}
+$('fbClose').onclick=()=>{stopCam();$('fb').classList.remove('show')};
+</script>
+</body>
+</html>
